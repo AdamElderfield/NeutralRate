@@ -1,0 +1,171 @@
+---
+title: "Steady state growth"
+author: "Adam Elderfield"
+date: "06/10/2019"
+output: html_document
+ 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd("C:/Users/aelde/OneDrive/Documents/GitHub/Neutral rate")
+library(dplyr)
+library(tidyverse)
+library(lubridate)
+source("~/GitHub/TST themes/Chart themes.R")
+devtools::load_all(path = "C:/Users/aelde/OneDrive/Documents/GitHub/Packages/tst.package")
+library(kableExtra)
+library(knitr)
+
+
+outputs <- read_rds("C:/Users/aelde/OneDrive/Documents/GitHub/Neutral rate/TVPVAR outputs.RDS")
+
+
+
+```
+# Introduction
+Time varying parameter vector autoregressions with stochastic volatility have become a popular tool for analysing macroeconomic time series. One advantage of the TVP-VAR is that can capture the potential structural changes within an economy.  
+
+
+Following [Lubik and Mathes (2015)](https://www.richmondfed.org/-/media/richmondfedorg/publications/research/economic_brief/2015/pdf/eb_15-10.pdf), I estimate a three variable TVP-VAR to infer about the steady state of the Australian economy. The model consists of the quarterly differences in the natural log of real GDP and underlying prices, as well as the real short term interest rate - the variable choice implies that the model has an IS curve, a Phillips curve, and a Taylor rule. 
+
+# The model
+$$
+\mathbf{Y} = \left[\begin{array}
+{rrrr}
+\Delta y_{t}\\
+\Delta \pi_{t}\\
+ri90
+\end{array}\right] 
+$$
+
+The TVP-VAR allows for the coefficient matrices to vary over time, under normal VAR estimation these are constant. In addition, the variance co-variance matrix of the residuals is also allowed to vary over time. Mathematiclly, this can be represented below:
+
+$$
+\mathbf{Y_t} = \mathbf{c_t} + \mathbf{B_{1,t}}\mathbf{Y_{t-1}} +...+ \mathbf{B_{p,t}}\mathbf{Y_{t-p}} + \mathbf{A^{-1}_t}\Sigma_t\epsilon_t 
+$$
+
+The model is cast into state space form and is expressed as:
+
+$$
+\mathbf{Y_t} = \mathbf{X'}\mathbf{B_{t}}\ + \mathbf{A^{-1}_t}\Sigma_t\epsilon_t\\
+\mathbf{B_t} = \mathbf{B_{t-1}} + v_{t}\\
+\mathbf{\alpha_t} = \mathbf{\alpha_{t-1}} + \eta_{t}\\
+log (\sigma_t) = log (\sigma_{t-1}) + \psi_{t}
+$$
+where $y_{t}$ is an $n\ \mathbf{x}\ 1$ vector stacking the variables at a given date, $\mathbf{X'_{t}} = I_n \otimes [1,\ y_{t-1} ,\ ...,\ y_{t-p}]$, $\mathbf{B_t}$ collects the parameters $c_t$ and $\{B_{j,p}\}_{j=1}^p$ from the equation above, $A_t$ is a lower triangular matrix with ones main diagonal, whose free elements are stacked in the vector $a_{t}$. Finally, $\Sigma_t$ is a diagonal matrix with positve elements $\sigma_t = diag(\Sigma_t )$
+
+
+## Data and results
+The data consist of real non-farm GDP, trimmed mean CPI and the 90 day bank bill rate. Becuase the ABS only produce trimmed mean CPI from 2002 onward, the series is backcast using CPI less food and energy. GDP and CPI have been seasonally adjusted and the effect of the GST has been removed from the CPI.  
+
+The model is estimated using Bayesian methods - for details refer to [Del Negro and Primiceri (2013)](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.864.5949&rep=rep1&type=pdf). I have followed [Primiceri (2005)](http://faculty.wcas.northwestern.edu/~gep575/tvsvar_final_july_04.pdf) in calibrating the model priors for estimation. However, the model is the one  rather than using 40 observations to estimate priors, I use the first 25% of the data.
+
+The steady state values for selected years are presented on the table below. As shown in the table, the steady state real interest rate has fallen since XXXX to a value of XX at the end of the sample
+
+```{r ,echo = FALSE}
+
+outputs$results %>% 
+  select(RSTAR5y, ANNUAL_YSTAR5y, ANNUAL_ISTAR5y, Date) %>%
+  rename(`Neutral rate` = RSTAR5y,
+         `Potential growth` = ANNUAL_YSTAR5y,
+         `Steady state inflation` = ANNUAL_ISTAR5y) %>% 
+  filter(grepl("-06-",.$Date)) %>% 
+  filter(!is.na(`Potential growth`)) %>% 
+  gather(`Steady State`,Val, -Date) %>% 
+  spread(`Steady State`, Val) %>% 
+  knitr::kable(digits = 2) %>% 
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = TRUE) 
+  
+
+```
+
+
+As shown in the table and in line with other estimates, namely [Kolhscheen and Nakajima (2019), table 1](https://www.bis.org/publ/work812.pdf), the steady state growth rate of the economy has shown a slight decline over the past two decades. However, the considerable uncertainty around this estimate should not be ignored. Consistent with other Australian studies, [McCrick and Ress (2017)](https://www.rba.gov.au/publications/bulletin/2017/sep/pdf/bu-0917-2-the-neutral-interest-rate.pdf), and as illustrated on the chart below, the neutral rate of interest has also declined in recent years. 
+
+```{r, message=FALSE, warning=FALSE,echo = FALSE, fig.align='center', fig.cap= "**Chart 1: Steady state  growth rates**"}
+
+chartRstar <- outputs$results %>% 
+  ggplot(aes(Date)) +
+  geom_line(aes(y = RSTAR5y), colour = tst_colors[2])+
+  geom_ribbon(aes(ymin = RealRi90_L, ymax = RealRi90_U), alpha = 0.2)+
+  ylab("")+
+  xlab("")+
+  ggtitle("The neutral interest rate")+
+  tst_theme()
+
+
+chartYstar <- outputs$results %>% 
+  ggplot(aes(Date)) +
+  geom_line(aes(y = YSTAR5y), colour = tst_colors[2])+
+  geom_ribbon(aes(ymin = RGDP_L, ymax =RGDP_U), alpha = 0.2)+
+  ylab("")+
+  xlab("")+
+  ggtitle("Potential output")+
+  tst_theme()
+
+
+chartIstar <- outputs$results %>% 
+  ggplot(aes(Date)) +
+  geom_line(aes(y = ISTAR5y), colour = tst_colors[2])+
+  geom_ribbon(aes(ymin = Inflation_L, ymax = Inflation_U), alpha = 0.2)+
+  ylab("")+
+  xlab("")+
+  ggtitle("Steady state inflation")+
+  tst_theme()
+
+gridExtra::grid.arrange(chartYstar,chartIstar,chartRstar, nrow = 1)
+
+neutralrateest <- outputs$results %>% 
+  select(RSTAR5y)%>% 
+  gdata::last() %>% 
+  round(3)
+
+neutralrateest <- last(neutralrateest)
+
+realrate <- outputs$results %>% 
+  select(RealRi90) %>% 
+  gdata::last() %>% 
+  round(3)
+
+
+
+```
+
+As shown on Chart 2, the estimated neutral rate is `r neutralrateest`, higher than the observed real interest rate of `r realrate`. The estimate of `r neutralrateest` is lower than other published estimates of the neutral rate. This is not surprising, real interest rates have fallen since [McCrick and Ress (2017)](https://www.rba.gov.au/publications/bulletin/2017/sep/pdf/bu-0917-2-the-neutral-interest-rate.pdf) published their findings, while inflation has remained relatively steady (below its target band) and economic growth has not improved significantly.     
+
+```{r, message=FALSE, warning=FALSE,echo = FALSE, fig.align='center', fig.cap= "**Chart 2: The neutral interest rate**"}
+
+outputs$results %>%
+  filter(!is.na(CPIINF)) %>% 
+  ggplot(aes(Date))+
+  geom_line(aes(y = RSTAR5y-ISTAR5y), colour = tst_colors[2])+
+  geom_line(aes(y= RealRi90-CPIINF), colour = "black", linetype ="dashed")+
+  #geom_line(aes(y= RSTAR), colour = tst_colors[3])+
+  annotate("text", x=ymd("2005-06-01") , y= 0.6, label = paste0("Real cash rate"))+
+  annotate("text", x=ymd("2015-06-01") , y= -0.5, label = "5 year forecast (LM 2015)", colour =tst_colors[2])+
+ # annotate("text", x=ymd("2015-06-01") , y= 1.5, label = "Steady state (EN 2019)", colour =tst_colors[3])+
+  ylab("")+
+  xlab("")+
+  ggtitle("The neutral interest rate")+
+  tst_theme()
+
+
+```
+
+
+## Steady state 
+
+[Lubik and Mathes (2015)](https://www.richmondfed.org/-/media/richmondfedorg/publications/research/economic_brief/2015/pdf/eb_15-10.pdf) use a similiar model to estimate US neutral rate of interest. They derive the neutral rate from the model by generating a long term (five year) forecast at data point. However, as noted by [Kolhscheen and Nakajima (2019)](https://www.bis.org/publ/work812.pdf), the equilbrium must also adhere to: 
+
+$$
+\mathbf{Y^*_t} = (\mathbf{I}-\mathbf{B_{1,t}}-\mathbf{B_{2,t}})^{-1}\mathbf{c_t}
+$$
+
+The steady state estimates and their computed probability intervals are presented ot Chart 3. 
+
+## Stocastic volatility 
+
+
+## Impulse responses
+

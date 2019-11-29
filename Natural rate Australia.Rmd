@@ -1,0 +1,127 @@
+---
+title: "A small state space model of Australia"
+author: "Adam Elderfield"
+date: "01/07/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+I am trying to estimate a multivariate dynamic linear model with the DLM package in R. The model consists of the following measurement equations
+
+## The models
+
+The main equations of interest are:
+
+$$
+
+y_{t} = y^*+ \alpha_{1}(y_{t-1}-y^*_{t-1})+\alpha_{2}(y_{t-1}-y^*_{t-1})+ \alpha_{3}^{gap}(r_{t_i}-r^*_{t_i}) + e_{y_{gap}} \\ 
+
+u_{t} = nairu_{t}+\beta_{1}^{u}(y_t-y^*_{t})+ e_{u} \\
+
+\pi_{t} = \gamma_{1}^\pi(u_{t-1}-nairu_{t-1})+\gamma_{2}^\pi\pi_{t-1}+(1-\gamma_{2}^\pi\pi_{t}^{exp} + e_{\pi}
+
+
+$$
+
+Where the variables below are latent states 
+
+$$
+
+y^*_{t} = y^*_{t}+g_t+ e_{y^*} \\ 
+
+g_{t} = g_{t-1}+e_{g} \\
+
+r^{*}_{t} = 4g_t+z_t \\
+
+z_t= z_{t-1}+e_{z}\\
+nairu_t = nairu_t+e_{nairu}\\
+
+
+$$
+
+I've followed the direction of the author of the DLM package when dealing with the exogenous variables (see this his response here https://stat.ethz.ch/pipermail/r-help/2011-August/288119.html) . In that I have treated them as random walks and added them to state and measurement equations.
+
+
+Putting all this into the form suitable for DLM:
+
+$$\mathbf{Y_t=F'θ_t+v}
+$$
+
+$$\mathbf{θ_t=Gθ_{t-1}+w}
+$$
+
+The matrices that define the system are:
+
+$$\mathbf{Y} = \left[\begin{array}
+{rrrr}
+y_{t} & u_{t} & \pi_{t} & r_{t} & \pi_{t}^{exp} 
+\end{array}\right]
+$$
+
+
+and
+
+$$\mathbf{F} = \left[\begin{array}
+{rrrr}
+1 & 0 & 0 & 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0\\
+0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 1 & 1 & 0 & 0 & 0\\
+0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 1 & 0\\
+0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & 0\\
+0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 1\\
+\end{array}\right]
+$$
+
+
+And
+
+
+$$
+\mathbf{\theta} = \left[\begin{array}
+{rrrr}
+y_{t}^{gap} & y_{t-1}^{gap} & y_{t}^{*} & g_{t} & r_{t}^{*}   & z_{t} & r_{t} & u_{t}^{*}  & u_{t}^{gap} & \pi_{t} & \pi^{exp}_{t}\\
+\end{array}\right]
+$$
+
+$$
+\mathbf{G} = \left[\begin{array}
+{rrrr}
+\alpha_{1}^{gap} & \alpha_{2}^{gap} & 0 & 0 & -\alpha_{3}^{gap}  & 0 & \alpha_{3}^{gap}  & 0 & 0 & 0 & 0 &  \\
+1 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0  \\
+0 & 0 & 1 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & 0  \\
+0 & 0 & 0 & 1 & 0 & 0 & 0 & 0 & 0 & 0 & 0  \\
+0 & 0 & 0 & 4 & 0 & 1 & 0 & 0 & 0 & 0 & 0  \\
+0 & 0 & 0 & 0 & 0 & 1 & 0 & 0 & 0 & 0 & 0  \\
+0 & 0 & 0 & 0 & 0 & 0 & 1 & 0 & 0 & 0 & 0  \\
+0 & 0 & 0 & 0 & 0 & 0 & 0 & 1 & 0 & 0 & 0  \\
+\beta_{1}\alpha_{1}^{gap} & \beta_{1}\alpha_{2}^{gap} & 0 & 0 & \beta_{1}-\alpha_{3}^{gap}  & 0 & \beta_{1}\alpha_{3}^{gap}  & 0 & 0 & 0 & 0  \\
+0 & 0 & 0 & 0 & 0 & 0 & 0 & 0  & \gamma_{1}^\pi & \gamma_{2}^\pi & (1-\gamma_{2}^\pi) \\
+0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 1  \\
+\end{array}\right]
+$$
+
+I think my F and G matrices are OK. But I am not sure on W. If the states were un-correlated, W would look like this: 
+
+$$
+\mathbf{W} = \left[\begin{array}
+{rrrr}
+\sigma_{ygap} & 0 & 0 & 0 & 0  &0 & 0  & 0 & 0 & 0 & 0 \\
+0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0  \\
+0 & 0 & \sigma_{y^*} & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0\\
+0 & 0 & 0 & \sigma_{g} & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
+0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0  \\
+0 & 0 & 0 & 0 & 0& \sigma_{r}& 0 & 0 & 0 & 0 & 0   \\
+0& 0 & 0 & 0 & 0 & 0 & \sigma_{z} & 0 & 0 & 0 & 0   \\
+0 &0& 0 & 0 & 0 & 0 & 0 & \sigma_{u^*} & 0 & 0 & 0   \\
+0 &0& 0 & 0 & 0 & 0 & 0 & 0 & \sigma_{ugap} & 0 & 0   \\
+0 &0& 0 & 0 & 0 & 0 & 0 & 0 & 0 & \sigma_{\pi}  & 0   \\
+0 & 0&0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & \sigma_{\pi_{exp}}   \\
+\end{array}\right]
+$$
+
+
+
