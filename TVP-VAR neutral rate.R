@@ -18,9 +18,9 @@ m <- tst.macrodata()  # Load latest data file
 #----------------------------------------------------------------------------------------
 # good
 AUSmacro <- m %>% 
-  mutate(Inflation = dl_CPIU_GST*100,
+  mutate(Inflation = CPI/lag(CPI,4)*100-100,
          RealRi90 = rate_90GST_r,
-         RGDP = dl_GDPNF_r*100,
+         RGDP = dl_GDPNF_r*400,
          UNER = rate_UNE,
          TWI = rate_TW
   
@@ -59,7 +59,7 @@ AUSmacro <- m %>%
 train <- 40#round(0.25*dim(AUSmacro[,-4])[1])
 lags <- 2
 
-bvar.fit <- bvar.sv.tvp(ts(AUSmacro[,-c(4:5)],c(1990,3), f = 4), p =lags, nf = 10, nburn = 1000,nrep = 20000, tau = train, pQ = 40)
+bvar.fit <- bvar.sv.tvp(ts(AUSmacro[,-c(4)],c(1990,3), f = 4), p =lags, nf = 5, nburn = 1000, nrep = 20000, pQ = 50, k_Q = 0.005, k_W = 0.01, k_S = 0.01 )
 
 var.fit <- vars::VAR(ts(AUSmacro[1:train,-4],c(1990,3), f = 4), p = 2, type = "const")
 
@@ -144,13 +144,13 @@ ssvals %>%
 # potential growth chart
 ssvals %>% 
   ggplot()+
-  geom_line(aes(Date, RGDP))+
+  #geom_line(aes(Date, RGDP))+
   geom_line(aes(Date, YSTAR), col = tst_colors[2])+tst_theme()+
   ggtitle("Potential output growth")+
   xlab("")+
-  ylab("")+
-  annotate("text", x=ymd("2018-06-01") , y= 1, label = "Potential growth", colour =tst_colors[2])+
-  annotate("text", x=ymd("2001-06-01") , y= 1, label = "Real GDP", colour =tst_colors[1])
+  ylab("")# +
+ # annotate("text", x=ymd("2018-06-01") , y= 1, label = "Potential growth", colour =tst_colors[2])+
+ # annotate("text", x=ymd("2001-06-01") , y= 1, label = "Real GDP", colour =tst_colors[1])
 
 
 #-----------------------------------------------------------------------------------------
@@ -402,6 +402,79 @@ finaltable %>%
   tst_theme()
 
 
+#-----------------------------------------------------------------------------------------
+# New function provided by Fabian Kruger to draw forecasts and UI from a bvarsv object
+#----------------------------------------------------------------------------------------
+
+
+# Helper function (select lower triangular matrix elements)
+sel_lower_tri <- function(x){
+  x[lower.tri(x)]
+}
+
+# Y is the data matrix
+# fit is an object obtained from applying bvar.sv.tvp to Y
+# nf is the maximal forecast horizon 
+get_all_forecasts <- function(Y, fit, nf = 10){
+  # Get parameter draws
+  A_draws <- fit$A.draws
+  Beta_draws <- fit$Beta.draws
+  # Nr of MC draws
+  mc_draws <- dim(Beta_draws)[3]
+  # Lag length
+  p <- fit$p 
+  # Nr of variables in VAR
+  M <- ncol(Y)
+  # Reconstruct length of training period
+  tau <- nrow(Y) - dim(Beta_draws)[2] - p
+  # Effective sample size
+  # note that data in Y and draws in parameter arrays are (tau+p) periods apart
+  # (no parameter draws for (tau+p) pre-sample periods)
+  t <- nrow(Y) - tau - p
+  # Get non-redundant elements of fit$logs2.draws 
+  logs2_draws <- fit$logs2.draws[,1:t,]
+  # Output array for forecasts
+  fc_m <- fc_y <- array(NA, c(M, t, nf, mc_draws))
+  fc_v <- array(0,c(M*(M+1)*0.5,t, nf, mc_draws))
+  # loop over time
+  for (jj in 1:t){
+    # Conditioning data
+    fcdat <- Y[(tau+jj+1):(tau+jj+p), , drop = FALSE]
+    # loop over MC draws
+    for (ii in 1:mc_draws){
+      # Parameters for current time period and MC draw
+      parmat <- bvarsv:::beta.reshape(fit$Beta.draws[,jj,ii], M, p)       
+      Atdraw_tmp <- sel_lower_tri(A_draws[,((jj-1)*M+1):(jj*M),ii])
+      Sigtdraw_tmp <- logs2_draws[,jj,ii]
+      auxb <- solve(bvarsv:::sigmahelper1(matrix(Atdraw_tmp, ncol = 1), M)) * 
+        diag(exp(0.5*Sigtdraw_tmp))
+      # Forecast variance
+      tmpvar <- auxb %*% t(auxb) 
+      # Loop over forecast horizons
+      for (hhh in 1:nf){
+        auxl <- bvarsv:::varfcst(parmat, tmpvar, fcdat, hhh)
+        fc_m[,jj,hhh,ii] <- auxl$mean
+        fc_v[,jj,hhh,ii] <- bvarsv:::vechC(auxl$variance)
+        fc_y[,jj,hhh,ii] <- bvarsv:::mvndrawC(auxl$mean, auxl$variance)
+      }      
+    }
+  }
+  list(fc_m = fc_m, fc_v = fc_v, fc_y = fc_y)
+}
+
+# Apply function
+fc_all <- get_all_forecasts(usmacro.update, fit)
+
+# Last time period
+t_sel <- dim(fit$Beta.postmean)[3]
+# Check consistency with fit for last time period
+all.equal(fc_all$fc_m[, t_sel,,], fit$fc.mdraws)
+all.equal(fc_all$fc_v[, t_sel,,], fit$fc.vdraws)
+library(magrittr)
+fc_all$fc_y[1,t_sel,,] %>% t %>% 
+  (function(x) apply(x, 2, function(z) quantile(z, c(.05, .95))))
+fit$fc.ydraws[1,,] %>% t %>% 
+  (function(x) apply(x, 2, function(z) quantile(z, c(.05, .95))))
 
   
 
