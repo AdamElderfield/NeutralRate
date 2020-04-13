@@ -79,6 +79,10 @@ NRdata <- tibble(log.output =    100*log(m$GDPE_r),
 # DLM1 - SEE LATEX NOTE 
 #-----------------------------------------------------------------------------------------
 
+EST <- list()
+
+for(i in c( 0.005, 0.1, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 3.0)){
+  
 
 NRDLM <- dlm(
   
@@ -106,7 +110,7 @@ R <- diag(0,17)
 # Set all elements of JGG to zero (will change below)
 #NRDLM$JGG <- diag(0,17)
 
-SIG <- sqrt(2)
+SIG <-sqrt(i)  #sqrt(0.4)
 
 # build DLM
 buildNRDLM <- function(p){
@@ -187,7 +191,8 @@ buildNRDLM <- function(p){
    R[17,17] <- p[15]
     
    W(NRDLM) <- R%*%t(R)
-  #################################################
+  
+   #################################################
   #########
   # USING MATRIx R to PICK OUT SHOCK VARIANCES LIKE IN ESTIMA EXAMPLE
   ########
@@ -228,28 +233,65 @@ buildNRDLM <- function(p){
   
 }
 
-theta <- c(1.53,-0.54, -0.05, -0.62, -0.32, 0.39, sqrt(0.38), sqrt(0.54), sqrt(0.05), 4, 1.113391 , sqrt(0.15), sqrt(0.07), sqrt(0.79),0.5) # estimates from paper
-# Estimate model
+theta <- c(1.53,-0.54, -0.15, -0.62, -0.32, 0.39, sqrt(0.38), sqrt(0.54), sqrt(0.05), 4, 1.113391 , sqrt(0.15), sqrt(0.07), sqrt(0.79),0.5) # estimates from RBA  paper
+
+#theta <- c(1.33,-0.54, -0.15, -0.62, -0.32, 0.39, sqrt(0.38), sqrt(0.54), sqrt(0.05), 4, 1.113391 , sqrt(0.15), sqrt(0.07), sqrt(0.79),0.5) # estimates from Sheen  paper
+
+LC <- rep(-Inf,15)
+UC <- rep(Inf,15)
+UC[3] <- -0.0025
+LC[c(7:9,11:15)] <- exp(-8)
+UC[c(7:9,11:15)] <- exp(12)
+
 
 NRDLM.est <-  dlmMLE(y = cbind(NRdata$log.output,NRdata$unr,NRdata$real.r,NRdata$Inflation, NRdata$Inflation.e), parm = theta, build = buildNRDLM, 
-                     control = list(trace = 6, REPORT = 5, maxit = 1000), debug = FALSE, method = "L-BFGS-B")
+                     lower = LC, upper = UC,
+                     control = list(trace = 6, REPORT = 5, maxit = 1000), debug = FALSE, method = "L-BFGS-B", hessian = TRUE)
 
-#lower =c(rep(-Inf,6),rep(exp(-8),3),-Inf,rep(exp(-8),5)), upper= c(rep(Inf,2),-0.00025,rep(Inf,3),rep(exp(12),3),Inf,rep(exp(12),5)),
 
+# Create table of estimates, standard erros, and t-stats
+EST[[paste0("sigma z = ",i)]] <-  tibble(Var =c("a1", "a2", "a3","g1","b1","b2", "sigma y*", "sigma ygap", "sigma mu","d", "sigma r","sigma ugap","sigma u*","sigma pi","sigma pie" ),
+       Par =round(NRDLM.est$par,5),
+       SE = sqrt(diag(solve(NRDLM.est$hessian))),
+       `t-stat` = Par/SE) %>% 
+  mutate(SE = ifelse(grepl("*sigma", .$Var), NA, SE),
+         `t-stat`= ifelse(grepl("*sigma", .$Var), NA, Par/SE),
+         Par = ifelse(grepl("*sigma", .$Var), Par, Par),
+  )
 
+}
 #--------------------------------------------------------------------------------------------------------------------------
 # filtered and smoothed estimates
 #--------------------------------------------------------------------------------------------------------------------------
 
-NRDLMbuilt <- buildNRDLM(NRDLM.est$par)
+#NRDLMbuilt <- buildNRDLM(NRDLM.est$par)
 
-#NRDLMbuilt <- buildNRDLM(theta)
+NRDLMbuilt <- buildNRDLM(EST$`sigma z = 1.4`$Par)
 
 
 filtered <- dlmFilter(y =cbind(NRdata$log.output,NRdata$unr,NRdata$real.r,NRdata$Inflation, NRdata$Inflation.e), mod = NRDLMbuilt)
 
-smoothed <- dlmSmooth(y = cbind(NRdata$log.output,NRdata$unr,NRdata$real.r,NRdata$Inflation), mod = NRDLMbuilt)
+smoothed <- dlmSmooth(y = cbind(NRdata$log.output,NRdata$unr,NRdata$real.r,NRdata$Inflation,NRdata$Inflation.e), mod = NRDLMbuilt)
 
 
 cbind(filtered$y[-c(2:9),1],filtered$m[-c(1:9),1]) %>% matplot(type ="l")
+
+cbind(filtered$y[-c(2:9),1],smoothed$s[-c(1:9),1]) %>% matplot(type ="l")
+
+cbind(filtered$y[-c(2:9),3],smoothed$s[-c(1:9),7]) %>% matplot(type ="l")
+
+
+#--------------------------------------------------------------------------------------------------------------------------
+# Gibbs sampling
+#--------------------------------------------------------------------------------------------------------------------------
+
+
+MCMC <- 1500 # number of MC draws
+
+
+theta <- c(1.53,-0.54, -0.05, -0.62, -0.32, 0.39, sqrt(0.38), sqrt(0.54), sqrt(0.05), 4, 1.113391 , sqrt(0.15), sqrt(0.07), sqrt(0.79),0.5)  #starting values
+
+
+
+
 
