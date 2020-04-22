@@ -47,7 +47,7 @@ NRdata <- tibble(log.output =    100*log(m$GDPE_r),
                  
                  # Change to underlying
                  Inflation.mgs = m$d4l_PMGS,
-                 Inflation =    m$d4l_CPI, 
+                 Inflation =    m$d4l_CPIU, 
                  Inflation.h = m$d4l_CPI,
                  Inflation.q = m$dl_CPI,
                  Inflation.l1 = lag(Inflation),
@@ -57,229 +57,39 @@ NRdata <- tibble(log.output =    100*log(m$GDPE_r),
                  
                  # Pull NS INFE in
                  Inflation.q.e = rollapplyr(Inflation.q,list(-(4:1)),mean,fill=NA),
-                 Inflation.e = rollapplyr(Inflation,list(-(12:1)),mean,fill=NA),
+                 Inflation.e = rollapplyr(Inflation,list(-(12:1)),mean,fill=NA), # Changed window to 4 qtrs
+                 INFE = m$INFE,  #Inflation.e,  #m$INFE,
                  
 #                 MTP_GAP =  as.numeric(neverhpfilter::yth_filter(xts(log(m$MTP_GDP),order.by = m$Date))$y.cycle),
                  
                  nominal.r = m$rate_90,
                  
                  Date = m$Date) %>% 
-  mutate(real.r = nominal.r-Inflation.h,
+  mutate(real.r = nominal.r- Inflation,
          real.r.l1 = lag(real.r),
          real.r.l2 = lag(real.r,2),
          real.r.l8 = lag(real.r,8),
          Inflation.e = Inflation.e, #-Inflation.l1,
          Inflation.mgs = Inflation.mgs-Inflation.l1,
   ) %>% 
-  filter(Date >= "1982-12-01")
+  filter(Date >= "1982-12-01") #89-08 for shorter INFE
 
 
-
-#-----------------------------------------------------------------------------------------
-# DLM1 - SEE LATEX NOTE 
-#-----------------------------------------------------------------------------------------
-
-EST <- list()
-
-for(i in c( 0.005, 0.1, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 3.0)){
+nabackcast <- function(x,y){
+  # Function to backcast, from the first missing data point. x = the series to backcast, y = the series to be used for backcasting
   
-
-NRDLM <- dlm(
+  nafind <- which(!is.na(x))
+  firstna <- nafind[1]
   
-  FF = matrix(0,5,17),
-  
-  V = diag(0.00001, 5),
-  
-  GG =diag(0,17),
-  
-  #JGG = diag(1,17),
-  
-  W = diag(0,17),
-  
-  m0 = rep(0,17),
-  
-  C0 = diag(10000000,17)
-  
-  #X = NRdata[,c("Inflation.e")]
-  
-)
-
-# Matrix to parametrise VCV matrix W
-R <- diag(0,17)
-
-# Set all elements of JGG to zero (will change below)
-#NRDLM$JGG <- diag(0,17)
-
-SIG <-sqrt(i)  #sqrt(0.4)
-
-# build DLM
-buildNRDLM <- function(p){
-  
-  FF(NRDLM)[1,1] <- 1
-  FF(NRDLM)[1,2] <- 1
-  
-  FF(NRDLM)[2,11] <- 1
-  FF(NRDLM)[2,12] <- 1
-  
-  FF(NRDLM)[3,9] <- 1
-
-  FF(NRDLM)[4,14] <- 1
-  FF(NRDLM)[5,17] <- 1
-  
-  GG(NRDLM)[1,1]  <- 1 
-  GG(NRDLM)[1,5]  <- 1
-  GG(NRDLM)[2,2]  <- p[1] 
-  GG(NRDLM)[2,3]  <- p[2]
-  GG(NRDLM)[2,7]  <- -p[3]/2
-  GG(NRDLM)[2,8]  <- -p[3]/2
-  GG(NRDLM)[2,9]  <- p[3]/2
-  GG(NRDLM)[2,10]  <- p[3]/2
-  GG(NRDLM)[3,2]  <- 1
-  GG(NRDLM)[4,3]  <- 1
-  
-  
-  GG(NRDLM)[5,5]  <- 1 
-  GG(NRDLM)[6,6]  <- 1 
-  GG(NRDLM)[7,5]  <- p[10]  #4 
-  GG(NRDLM)[7,6]  <- 1 
-  GG(NRDLM)[8,7]  <- 1 
-  
-  GG(NRDLM)[9,9]  <- 1 
-  GG(NRDLM)[10,9]  <- 1 
-  
-  GG(NRDLM)[11,11] <- 1
-  
-  GG(NRDLM)[12,2]  <- p[4]*(0.4*p[1]+0.3)        
-  GG(NRDLM)[12,3]  <- p[4]*(0.4*p[2]+0.2)        
-  GG(NRDLM)[12,4]  <- p[4]*0.1       
-  GG(NRDLM)[12,7]  <- p[4]*0.4*-p[3]/2       
-  GG(NRDLM)[12,8]  <- p[4]*0.4*-p[3]/2       
-  GG(NRDLM)[12,9] <- p[4]*0.4*p[3]/2            
-  GG(NRDLM)[12,10] <- p[4]*0.4*p[3]/2           
-  GG(NRDLM)[13,12] <- 1           
-  
-  GG(NRDLM)[14,13] <- p[5]
-  GG(NRDLM)[14,14] <- p[6]/3
-  GG(NRDLM)[14,15] <- p[6]/3
-  GG(NRDLM)[14,16] <- p[6]/3
-  GG(NRDLM)[14,17] <- (1-p[6])
-  GG(NRDLM)[15,14] <- 1
-  GG(NRDLM)[16,15] <- 1
-  
-  GG(NRDLM)[17,17] <- 1
-  
-  
-  #JGG(NRDLM)[14,17] <- 1
-  
-  
-  # Variance covariance - RR'
-  
-   R[1,1] <- p[7]
-   R[2,2] <- p[8]
-   R[5,5] <- p[9]
-   R[6,6] <-  SIG   #p[10]
-   R[7,6] <-  SIG   #p[10]
-   R[7,5] <-  SIG*p[9]  #p[10]*p[9]
-   R[7,7] <-  SIG*p[9]+p[11]  #p[10]*p[9]
-   
-   R[9,9] <- p[11]
-   R[11,11] <- p[12]
-   R[12,12] <- p[13]+p[8]*p[4]
-   R[12,2] <- p[4]*p[8]
-   R[14,14] <- p[14]+p[15]
-   R[17,14] <- p[6]*p[15]
-   R[17,17] <- p[15]
+  for(i in firstna:1){
     
-   W(NRDLM) <- R%*%t(R)
-  
-   #################################################
-  #########
-  # USING MATRIx R to PICK OUT SHOCK VARIANCES LIKE IN ESTIMA EXAMPLE
-  ########
-  # R[1,1] <- 1
-  # R[2,2] <- 1
-  # R[5,5] <- 1
-  # R[6,6] <- 1
-  # R[7,6] <- 1
-  # R[7,5] <- 4
-  # R[9,9] <- 1
-  # R[11,11] <- 1
-  # R[12,12] <- 1
-  # R[12,2] <- 1 #p[4]
-  # R[14,14] <- 1
-  # R[14,17] <- 1 #p[6]#(1-p[6]) 
-  # R[17,17] <- 1
-  #SHOCKS <-  matrix(c(p[7]^2,p[8]^2,0,0,p[9]^2,p[10]^2,0,0,p[11]^2,0,p[12]^2,p[13]^2,0,p[14]^2,0,0,p[15]^2), 17, 1, byrow = T)
-  #W(NRDLM) <- diag(c(R%*%SHOCKS), 17)
-  ###################################################
-  
-   # PRIORS
-   m0(NRDLM) <- c(NRdata$log.output[1],0,0,0,mean(diff(NRdata$log.output[1:4])),0,NRdata$real.r[2],NRdata$real.r[1],NRdata$real.r[2],NRdata$real.r[1],NRdata$unr[1],0,0,NRdata$Inflation[3],NRdata$Inflation[2],NRdata$Inflation[1], NRdata$Inflation.e[1])
-  
-  
-    # C0(NRDLM)[1,1] <- 100
-    # #C0(NRDLM)[5,5] <- var(NRdata$log.output)
-    # C0(NRDLM)[6,6] <- 100 #var(NRdata$real.r)
-    # C0(NRDLM)[7,7] <- 100 #var(NRdata$real.r)
-    # C0(NRDLM)[9,9] <- var(NRdata$real.r)
-    # C0(NRDLM)[11,11] <-100 
-    # C0(NRDLM)[12,12] <- var(NRdata$unr)
-    # C0(NRDLM)[14,14] <- var(NRdata$Inflation)
-    # C0(NRDLM)[14,14] <- var(NRdata$Inflation.e)
-    # 
-   
-   
-  return(NRDLM)
-  
+    x[firstna-i] <- x[firstna]*y[firstna-i]/y[firstna]
+    
+  }
+  return(x)
 }
 
-theta <- c(1.53,-0.54, -0.15, -0.62, -0.32, 0.39, sqrt(0.38), sqrt(0.54), sqrt(0.05), 4, 1.113391 , sqrt(0.15), sqrt(0.07), sqrt(0.79),0.5) # estimates from RBA  paper
-
-#theta <- c(1.33,-0.54, -0.15, -0.62, -0.32, 0.39, sqrt(0.38), sqrt(0.54), sqrt(0.05), 4, 1.113391 , sqrt(0.15), sqrt(0.07), sqrt(0.79),0.5) # estimates from Sheen  paper
-
-LC <- rep(-Inf,15)
-UC <- rep(Inf,15)
-UC[3] <- -0.0025
-LC[c(7:9,11:15)] <- exp(-8)
-UC[c(7:9,11:15)] <- exp(12)
-
-
-NRDLM.est <-  dlmMLE(y = cbind(NRdata$log.output,NRdata$unr,NRdata$real.r,NRdata$Inflation, NRdata$Inflation.e), parm = theta, build = buildNRDLM, 
-                     lower = LC, upper = UC,
-                     control = list(trace = 6, REPORT = 5, maxit = 1000), debug = FALSE, method = "L-BFGS-B", hessian = TRUE)
-
-
-# Create table of estimates, standard erros, and t-stats
-EST[[paste0("sigma z = ",i)]] <-  tibble(Var =c("a1", "a2", "a3","g1","b1","b2", "sigma y*", "sigma ygap", "sigma mu","d", "sigma r","sigma ugap","sigma u*","sigma pi","sigma pie" ),
-       Par =round(NRDLM.est$par,5),
-       SE = sqrt(diag(solve(NRDLM.est$hessian))),
-       `t-stat` = Par/SE) %>% 
-  mutate(SE = ifelse(grepl("*sigma", .$Var), NA, SE),
-         `t-stat`= ifelse(grepl("*sigma", .$Var), NA, Par/SE),
-         Par = ifelse(grepl("*sigma", .$Var), Par, Par),
-  )
-
-}
-#--------------------------------------------------------------------------------------------------------------------------
-# filtered and smoothed estimates
-#--------------------------------------------------------------------------------------------------------------------------
-
-#NRDLMbuilt <- buildNRDLM(NRDLM.est$par)
-
-NRDLMbuilt <- buildNRDLM(EST$`sigma z = 1.4`$Par)
-
-
-filtered <- dlmFilter(y =cbind(NRdata$log.output,NRdata$unr,NRdata$real.r,NRdata$Inflation, NRdata$Inflation.e), mod = NRDLMbuilt)
-
-smoothed <- dlmSmooth(y = cbind(NRdata$log.output,NRdata$unr,NRdata$real.r,NRdata$Inflation,NRdata$Inflation.e), mod = NRDLMbuilt)
-
-
-cbind(filtered$y[-c(2:9),1],filtered$m[-c(1:9),1]) %>% matplot(type ="l")
-
-cbind(filtered$y[-c(2:9),1],smoothed$s[-c(1:9),1]) %>% matplot(type ="l")
-
-cbind(filtered$y[-c(2:9),3],smoothed$s[-c(1:9),7]) %>% matplot(type ="l")
-
+NRdata$INFE <- nabackcast(NRdata$INFE,NRdata$Inflation)
 
 #--------------------------------------------------------------------------------------------------------------------------
 # Using the LW three stage approach
@@ -298,7 +108,7 @@ cbind(filtered$y[-c(2:9),3],smoothed$s[-c(1:9),7]) %>% matplot(type ="l")
     
     m0 = rep(0,12),
     
-    C0 = diag(10000000,12)
+    C0 = diag(0.1,12)
     
     
   )
@@ -348,19 +158,31 @@ cbind(filtered$y[-c(2:9),3],smoothed$s[-c(1:9),7]) %>% matplot(type ="l")
     
     # Variance covariance - RR'
     
-    R[1,1] <- p[6]
-    R[2,2] <- p[7]
-    R[6,6] <- p[8]
-    R[7,7] <- p[9]+p[4]*p[7]
-    R[7,2] <- p[4]*p[7]
-    R[9,9] <- p[10]+(1-p[5])*p[11]
-    R[12,9] <- (1-p[5])*p[11]
-    R[12,12] <- p[11]
-    
-    W(stage1NRDLM) <- R%*%t(R)
+    R[1,1] <- p[6]^2
+    R[2,2] <- p[7]^2
+    R[6,6] <- p[8]^2
+    R[7,7] <- p[9]^2+(p[4]*p[7])^2
+    R[7,2] <- R[2,7] <- (p[4]*p[7])^2
+    R[9,9] <- p[10]^2+((1-p[5])*p[11])^2
+    R[12,9] <- R[9,12] <- ((1-p[5])*p[11])^2
+    R[12,12] <- p[11]^2
 
+    W(stage1NRDLM) <- R # R%*%t(R)
+# 
+#     R[1,1] <- p[6]
+#     R[2,2] <- p[7]
+#     R[6,6] <- p[8]
+#     R[7,7] <- p[9]+p[4]*p[7]
+#     R[7,2] <- p[4]*p[7]
+#     R[9,9] <- p[10]+(1-p[5])*p[11]
+#     R[12,9] <- (1-p[5])*p[11]
+#     R[12,12] <- p[11]
+#     
+#     W(stage1NRDLM) <- R%*%t(R)
+    
+    
     # PRIORS
-    m0(stage1NRDLM) <- c(NRdata$log.output[1],0,0,0,mean(diff(NRdata$log.output[1:4])),NRdata$unr[1],0,0,NRdata$Inflation[3],NRdata$Inflation[2],NRdata$Inflation[1], NRdata$Inflation.e[1])
+    m0(stage1NRDLM) <- c(NRdata$log.output[1],0,0,0,mean(diff(NRdata$log.output[1:4])),NRdata$unr[1],0,0,NRdata$Inflation[3],NRdata$Inflation[2],NRdata$Inflation[1], NRdata$INFE[1])
     
     
 
@@ -368,17 +190,17 @@ cbind(filtered$y[-c(2:9),3],smoothed$s[-c(1:9),7]) %>% matplot(type ="l")
     
   }
   
-  theta <- c(1.53,-0.54, -0.15, -0.62, 0.32, sqrt(0.38), sqrt(0.54), sqrt(0.05), sqrt(0.15), sqrt(0.07), sqrt(0.79),0.5) # estimates from RBA  paper
-  
+ theta <- c(1.53,-0.54, -0.15, -0.62, 0.32, sqrt(0.38), sqrt(0.54), sqrt(0.05), sqrt(0.15), sqrt(0.07), sqrt(0.79)) # estimates from RBA  paper
+ # theta <- c(1.53,-0.54, -0.15, -0.62, 0.32, 0.5, 0.5, 0.5,0.5,0.5, 0.5) 
 
-  LC <- rep(-Inf,15)
-  UC <- rep(Inf,15)
+  LC <- rep(-Inf,11)
+  UC <- rep(Inf,11)
   # UC[3] <- -0.0025
-  # LC[c(7:9,11:15)] <- exp(-8)
-  # UC[c(7:9,11:15)] <- exp(12)
+ # LC[c(6:11)] <- exp(-8)
+  #UC[c(6:11)] <- exp(12)
   
   
-  stage1NRDLM.est <-  dlmMLE(y = cbind(NRdata$log.output,NRdata$unr,NRdata$Inflation, NRdata$Inflation.e), parm = theta, build = stage1buildNRDLM, 
+  stage1NRDLM.est <-  dlmMLE(y = cbind(NRdata$log.output,NRdata$unr,NRdata$Inflation, NRdata$INFE), parm = theta, build = stage1buildNRDLM, 
                        lower = LC, upper = UC,
                        control = list(trace = 6, REPORT = 5, maxit = 1000), debug = FALSE, method = "L-BFGS-B", hessian = TRUE)
   
@@ -390,16 +212,16 @@ cbind(filtered$y[-c(2:9),3],smoothed$s[-c(1:9),7]) %>% matplot(type ="l")
 stage1NRDLMbuilt <- stage1buildNRDLM(stage1NRDLM.est$par)
 
 
-stage1filtered <- dlmFilter(y =cbind(NRdata$log.output,NRdata$unr,NRdata$Inflation, NRdata$Inflation.e), mod = stage1NRDLMbuilt)
+stage1filtered <- dlmFilter(y =cbind(NRdata$log.output,NRdata$unr,NRdata$Inflation, NRdata$INFE), mod = stage1NRDLMbuilt)
 
-stage1smoothed <- dlmSmooth(y = cbind(NRdata$log.output,NRdata$unr,NRdata$Inflation,NRdata$Inflation.e), mod = stage1NRDLMbuilt)
+stage1smoothed <- dlmSmooth(y = cbind(NRdata$log.output,NRdata$unr,NRdata$Inflation,NRdata$INFE), mod = stage1NRDLMbuilt)
 
 
-cbind(filtered$y[-c(2:9),1],filtered$m[-c(1:9),1]) %>% matplot(type ="l")
+cbind(stage1filtered$y[-c(2:9),1],stage1filtered$m[-c(1:9),1]) %>% matplot(type ="l")
 
-cbind(filtered$y[-c(2:9),1],smoothed$s[-c(1:9),1]) %>% matplot(type ="l")
+cbind(stage1filtered$y[-c(2:9),1],stage1smoothed$s[-c(1:9),1]) %>% matplot(type ="l")
 
-cbind(stage1filtered$m[-c(2:9),5],stage1smoothed$s[-c(1:9),5]) %>% matplot(type ="l")
+cbind(stage1filtered$m[-c(1:9),5],stage1smoothed$s[-c(1:9),5]) %>% matplot(type ="l")
 
 
 #--------------------------------------------------------------------------------------------------------------------------
@@ -431,7 +253,7 @@ stage2NRDLM <- dlm(
   
   m0 = rep(0,15),
   
-  C0 = diag(10000000,15)
+  C0 = diag(1000000,15)
   
   
 )
@@ -497,22 +319,33 @@ stage2buildNRDLM <- function(p){
   
   # Variance covariance - RR'
   
-  R[1,1] <- p[7]
-  R[2,2] <- p[8]
-  R[5,5] <-lambda.g*p[7]
-  R[9,9] <- p[9]
-  R[10,10] <- p[10]+p[4]*p[8]
-  R[10,2] <- p[4]*p[8]
-  R[12,12] <- p[11]+(1-p[6])*p[12]
-  R[15,12] <- (1-p[6])*p[12]
-  R[15,15] <- p[12]
-  R[6,6] <- p[13]
+  # R[1,1] <- p[7]
+  # R[2,2] <- p[8]
+  # R[5,5] <-lambda.g*p[7]
+  # R[9,9] <- p[9]
+  # R[10,10] <- p[10]+p[4]*p[8]
+  # R[10,2]  <-  p[4]*p[8]
+  # R[12,12] <- p[11]+(1-p[6])*p[12]
+  # R[15,12] <- (1-p[6])*p[12]
+  # R[15,15] <- p[12]
+  # R[6,6] <- p[13]
+   
+  R[1,1] <- p[7]^2
+  R[2,2] <- p[8]^2
+  R[5,5] <-(lambda.g*p[7])^2
+  R[9,9] <- p[9]^2
+  R[10,10] <- p[10]^2+(p[4]*p[8])^2
+  R[10,2]  <- R[2,10] <-   (p[4]*p[8])^2
+  R[12,12] <- p[11]^2+((1-p[6])*p[12])^2
+  R[15,12] <- R[12,15] <-  ((1-p[6])*p[12])^2
+  R[15,15] <- p[12]^2
+  R[6,6] <- p[13]^2
   
-  
-  W(stage2NRDLM) <- R%*%t(R)
+    
+  W(stage2NRDLM) <- R # R%*%t(R)
   
   # PRIORS
-  m0(stage2NRDLM) <- c(NRdata$log.output[1],0,0,0,mean(diff(NRdata$log.output[1:4])),NRdata$real.r[2],NRdata$real.r[1],0,NRdata$unr[1],0,0,NRdata$Inflation[3],NRdata$Inflation[2],NRdata$Inflation[1], NRdata$Inflation.e[1])
+  m0(stage2NRDLM) <- c(NRdata$log.output[1],0,0,0,mean(diff(NRdata$log.output[1:4])),NRdata$real.r[2],NRdata$real.r[1],0,NRdata$unr[1],0,0,NRdata$Inflation[3],NRdata$Inflation[2],NRdata$Inflation[1], NRdata$INFE[1])
   
   
   
@@ -521,17 +354,17 @@ stage2buildNRDLM <- function(p){
 }
 
 theta <- c(1.53,-0.54 ,-0.15, -0.62, -0.32, 0.5, sqrt(0.38), sqrt(0.54), sqrt(0.15), sqrt(0.07),sqrt(0.79),0.5,0.5, 0) # estimates from RBA  paper
-#theta <- c(1.53,-0.54 ,-0.15, -0.62, -0.32, 0.5, 0.5, 0.5, 0.5, 0.5,0.5,0.5) #
+#theta <- c(1.53,-0.54 ,-0.15, -0.62, -0.32, 0.5, 0.5, 0.5, 0.5, 0.5,0.5,0.5,0.5,0.5) #
 
 LC <- rep(-Inf,14)
 UC <- rep(Inf,14)
 UC[3] <- -0.0025
 UC[5] <- -0.25   # Parameter on Phillips curve is problematic
-LC[c(7:12)] <- exp(-8)
-UC[c(7:12)] <- exp(12)
+#LC[c(7:12)] <- exp(-8)
+#UC[c(7:12)] <- exp(12)
 
 
-stage2NRDLM.est <-  dlmMLE(y = cbind(NRdata$log.output,NRdata$unr,NRdata$Inflation, NRdata$Inflation.e, NRdata$real.r), parm = theta, build = stage2buildNRDLM, 
+stage2NRDLM.est <-  dlmMLE(y = cbind(NRdata$log.output,NRdata$unr,NRdata$Inflation, NRdata$INFE, NRdata$real.r), parm = theta, build = stage2buildNRDLM, 
                            lower = LC, upper = UC,
                            control = list(trace = 6, REPORT = 5, maxit = 1000), debug = FALSE, method = "L-BFGS-B", hessian = TRUE)
 
@@ -543,9 +376,9 @@ stage2NRDLM.est <-  dlmMLE(y = cbind(NRdata$log.output,NRdata$unr,NRdata$Inflati
 stage2NRDLMbuilt <- stage2buildNRDLM(stage2NRDLM.est$par)
 
 
-stage2filtered <- dlmFilter(y =cbind(NRdata$log.output,NRdata$unr,NRdata$Inflation, NRdata$Inflation.e,NRdata$real.r), mod = stage2NRDLMbuilt)
+stage2filtered <- dlmFilter(y =cbind(NRdata$log.output,NRdata$unr,NRdata$Inflation, NRdata$INFE,NRdata$real.r), mod = stage2NRDLMbuilt)
 
-stage2smoothed <- dlmSmooth(y = cbind(NRdata$log.output,NRdata$unr,NRdata$Inflation,NRdata$Inflation.e,NRdata$real.r), mod = stage2NRDLMbuilt)
+stage2smoothed <- dlmSmooth(y = cbind(NRdata$log.output,NRdata$unr,NRdata$Inflation,NRdata$INFE,NRdata$real.r), mod = stage2NRDLMbuilt)
 
 
 cbind(stage2filtered$y[-c(2:9),1],stage2filtered$m[-c(1:9),1]) %>% matplot(type ="l")
@@ -696,7 +529,7 @@ stage3buildNRDLM <- function(p){
   W(stage3NRDLM) <- R #R%*%t(R)
   
   # PRIORS
-  m0(stage3NRDLM) <- c(NRdata$log.output[1],0,0,0,mean(diff(NRdata$log.output[1:4])),mean(diff(NRdata$log.output[1:5])),NRdata$real.r[2],NRdata$real.r[1],0,0,NRdata$unr[1],0,0,NRdata$Inflation[3],NRdata$Inflation[2],NRdata$Inflation[1], NRdata$Inflation.e[1])
+  m0(stage3NRDLM) <- c(NRdata$log.output[1],0,0,0,mean(diff(NRdata$log.output[1:4])),mean(diff(NRdata$log.output[1:5])),NRdata$real.r[2],NRdata$real.r[1],0,0,NRdata$unr[1],0,0,NRdata$Inflation[3],NRdata$Inflation[2],NRdata$Inflation[1], NRdata$INFE[1])
   
   
   
@@ -708,17 +541,18 @@ theta <- c(1.53,-0.54 ,-0.15, 1, -0.62, -0.32, 0.5, sqrt(0.38), sqrt(0.54), sqrt
 
 LC <- rep(-Inf,14)
 UC <- rep(Inf,14)
-UC[3] <- -0.005  # Calibrated to give a neutral rate consistent with other studies 
-UC[6] <- -0.32   # Parameter on Phillips curve is problematic
+UC[3] <- -0.0025  # Calibrated to give a neutral rate consistent with other studies 
+UC[6] <- -0.025   # Parameter on Phillips curve is problematic
 LC[c(7:14)] <- exp(-8)
 UC[c(7:14)] <- exp(12)
 
 
-stage3NRDLM.est <-  dlmMLE(y = cbind(NRdata$log.output,NRdata$unr,NRdata$Inflation, NRdata$Inflation.e, NRdata$real.r), parm = theta, build = stage3buildNRDLM, 
+stage3NRDLM.est <-  dlmMLE(y = cbind(NRdata$log.output,NRdata$unr,NRdata$Inflation, NRdata$INFE, NRdata$real.r), parm = theta, build = stage3buildNRDLM, 
                            lower = LC, upper = UC,
                            control = list(trace = 6, REPORT = 5, maxit = 1000), debug = FALSE, method = "L-BFGS-B", hessian = TRUE)
 
-
+# Save off parameter estiamtes 
+# create confidence bands
 
 #--------------------------------------------------------------------------------------------------------------------------
 # filtered and smoothed estimates
@@ -734,11 +568,12 @@ stage3smoothed <- dlmSmooth(y = cbind(NRdata$log.output,NRdata$unr,NRdata$Inflat
 
 
 ## One-sided (filtered) R-star estimates
-trend.filtered      <- stage3filtered$m[,4] * 4
+trend.filtered      <- stage3filtered$m[,5] * 4
 z.filtered          <- stage3filtered$m[,9]
 rstar.filtered      <- trend.filtered * stage3NRDLM.est$par[4] + z.filtered
 
-cbind(NRdata$real.r,rstar.filtered[-1])
+cbind(NRdata$real.r[-c(1:11)],rstar.filtered[-c(1:12)]) %>% 
+  matplot(type = "l")
 
 ## One-sided (smoothed) R-star estimates
 trend.smoothed     <- stage3smoothed$s[,5] * 4
@@ -759,13 +594,40 @@ cbind(stage3filtered$m[-c(1:9),5],stage3smoothed$s[-c(1:9),5]) %>% matplot(type 
 # Charts and tables
 #--------------------------------------------------------------------------------------------------------------------------
 
-# Chart one - potential output and actual output
+# Chart one - potential output and actual output (change chart themes)
+tibble(Output = stage3filtered$y[,1],
+       Potential = stage3smoothed$s[-1,1],
+       Date = seq(as.Date("1982-12-01"), length.out = length(stage3smoothed$s[-1,1]), by  = "quarter" ) ) %>% 
+  gather(Var, Val, -Date) %>% 
+  tst.plot1(aes(x= Date, y = Val, colour = Var))
 
 # Chart two - output gap
+tibble(Output_Gap = stage3smoothed$s[-1,2],
+       Date = seq(as.Date("1982-12-01"), length.out = length(stage3smoothed$s[-1,1]), by  = "quarter" ) ) %>% 
+  gather(Var, Val, -Date) %>% 
+  tst.plot1(aes(x= Date, y = Val, colour = Var))
 
 # Chart three - nairu and unemployment rate
+tibble(`Unemployment rate` = stage3filtered$y[,2],
+       NAIRU = stage3smoothed$s[-1,11],
+       Date = seq(as.Date("1982-12-01"), length.out = length(stage3smoothed$s[-1,1]), by  = "quarter" ) ) %>% 
+  gather(Var, Val, -Date) %>%
+  tst.plot1(aes(x= Date, y = Val, colour = Var))
 
 # Chart four - r* and real cash rate
+tibble(`Real cash rate` = stage3filtered$y[,5],
+       `Neutral rate (two sided)` = rstar.smoothed[-1],
+       #`Neutral rate (one sided)` = rstar.filtered[-1],
+       Date = seq(as.Date("1982-12-01"), length.out = length(stage3smoothed$s[-1,1]), by  = "quarter" ) ) %>% 
+  gather(Var, Val, -Date) %>% 
+  filter(Date >= "1982-06-01") %>% 
+  tst.plot1(aes(x= Date, y = Val, colour = Var))
 
+
+tibble(`Inflation` = stage3filtered$m[,14],
+       IE = stage3filtered$m[,17],
+       Date = seq(as.Date("1982-12-01"), length.out = length(stage3smoothed$s[,1]), by  = "quarter" ) ) %>% 
+  gather(Var, Val, -Date) %>%
+  tst.plot1(aes(x= Date, y = Val, colour = Var))
 
 
