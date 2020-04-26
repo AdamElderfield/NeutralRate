@@ -72,7 +72,7 @@ NRdata <- tibble(log.output =    100*log(m$GDPE_r),
          Inflation.e = Inflation.e, #-Inflation.l1,
          Inflation.mgs = Inflation.mgs-Inflation.l1,
   ) %>% 
-  filter(Date >= "1982-12-01") #89-08 for shorter INFE
+  filter(Date >= "1982-12-01") # 1982-12-01 89-08 for shorter INFE
 
 
 nabackcast <- function(x,y){
@@ -90,6 +90,8 @@ nabackcast <- function(x,y){
 }
 
 NRdata$INFE <- nabackcast(NRdata$INFE,NRdata$Inflation)
+
+
 
 #--------------------------------------------------------------------------------------------------------------------------
 # Using the LW three stage approach
@@ -406,6 +408,13 @@ lambda.z <- median.unbiased.estimator.stage2(y,x)
 #--------------------------------------------------------------------------------------------------------------------------
 # Stage 3 
 #---------------------------------------------------------------------------------------------------------------
+NRdata <- NRdata0
+
+NRdata0 <- NRdata
+
+NRdata <- NRdata0 %>% 
+  filter(Date >= "1990-09-01")
+
 
 stage3NRDLM <- dlm(
   
@@ -419,8 +428,7 @@ stage3NRDLM <- dlm(
   
   m0 = rep(0,17),
   
-  C0 = diag(10000000,17)
-  
+  C0 = diag(10000000,17)  #10000000 #100, p[4] calibrated to 1 gives r* of2.6
   
 )
 
@@ -481,6 +489,7 @@ stage3buildNRDLM <- function(p){
   GG(stage3NRDLM)[12,8] <- p[5]*0.4*p[3]/2  
   GG(stage3NRDLM)[12,9] <- -p[5]*0.4*p[3]/2            
   GG(stage3NRDLM)[12,10] <- -p[5]*0.4*p[3]/2  
+#  GG(stage3NRDLM)[12,13] <- p[15]  # DELETE IF NO GOOD
   
   
   GG(stage3NRDLM)[13,12] <- 1           
@@ -537,12 +546,15 @@ stage3buildNRDLM <- function(p){
   
 }
 
-theta <- c(1.53,-0.54 ,-0.15, 1, -0.62, -0.32, 0.5, sqrt(0.38), sqrt(0.54), sqrt(0.15), sqrt(0.07),sqrt(0.79),0.5,0.5) # estimates from RBA  paper
+theta <- c(1.53,-0.54 ,-0.15, 1, -0.62, -0.32, 0.5, sqrt(0.38), sqrt(0.54), sqrt(0.15), 0.9,sqrt(0.79),0.5,0.5) # estimates from RBA  paper
 
 LC <- rep(-Inf,14)
 UC <- rep(Inf,14)
+UC[4] <- 1
+LC[4] <- 0.4
 UC[3] <- -0.0025  # Calibrated to give a neutral rate consistent with other studies 
 UC[6] <- -0.025   # Parameter on Phillips curve is problematic
+#LC[11] <- exp(-2)
 LC[c(7:14)] <- exp(-8)
 UC[c(7:14)] <- exp(12)
 
@@ -553,6 +565,17 @@ stage3NRDLM.est <-  dlmMLE(y = cbind(NRdata$log.output,NRdata$unr,NRdata$Inflati
 
 # Save off parameter estiamtes 
 # create confidence bands
+tibble(Var =c("a1", "a2", "a3","c","gamma","beta1", "beta2", "sigma y", "sigma ygap","sigma u*", "sigma ugap", "sigma pi","sigma r","sigma piexp"),
+       Par =round(stage3NRDLM.est$par,3),
+       SE = sqrt(diag(solve(stage3NRDLM.est$hessian))),
+       Delta =sqrt(diag(diag(stage3NRDLM.est$par)%*%solve(stage3NRDLM.est$hessian)%*%diag(stage3NRDLM.est$par))),
+       `t-stat` = Par/SE,
+       `t-stat2` = Par/Delta,) %>% 
+  mutate(SE = ifelse(grepl("*sigma", .$Var), Delta, SE),
+         `t-stat`= ifelse(grepl("*sigma", .$Var), NA, Par/SE),
+         Par = ifelse(grepl("*sigma", .$Var), Par^2, Par),
+  )
+
 
 #--------------------------------------------------------------------------------------------------------------------------
 # filtered and smoothed estimates
@@ -567,6 +590,18 @@ stage3filtered <- dlmFilter(y =cbind(NRdata$log.output,NRdata$unr,NRdata$Inflati
 stage3smoothed <- dlmSmooth(y = cbind(NRdata$log.output,NRdata$unr,NRdata$Inflation,NRdata$Inflation.e,NRdata$real.r), mod = stage3NRDLMbuilt)
 
 
+variances <-  dlmSvd2var(stage3smoothed$U.S,stage3smoothed$D.S) %>%
+  lapply(sqrt) %>%
+  sapply(diag) %>%
+  t() %>% 
+  data.frame()
+
+tibble(Potential = stage3smoothed$s[-1,11],
+       Date = NRdata$Date,
+       upper = stage3smoothed$s[-1,11]+(variances[-1,11]*qnorm(0.05,lower.tail = FALSE)) ,
+       lower = stage3smoothed$s[-1,11]-(variances[-1,11]*qnorm(0.05,lower.tail = FALSE))
+)
+
 ## One-sided (filtered) R-star estimates
 trend.filtered      <- stage3filtered$m[,5] * 4
 z.filtered          <- stage3filtered$m[,9]
@@ -577,8 +612,17 @@ cbind(NRdata$real.r[-c(1:11)],rstar.filtered[-c(1:12)]) %>%
 
 ## One-sided (smoothed) R-star estimates
 trend.smoothed     <- stage3smoothed$s[,5] * 4
+trend.s.u <- trend.smoothed+(variances[,5]*qnorm(0.05,lower.tail = FALSE))
+trend.s.l <- trend.smoothed-(variances[,5]*qnorm(0.05,lower.tail = FALSE))
+
 z.smoothed          <- stage3smoothed$s[,9]
+z.s.u <- z.smoothed+(variances[,9]*qnorm(0.05,lower.tail = FALSE))
+z.s.l <- z.smoothed-(variances[,9]*qnorm(0.05,lower.tail = FALSE))
+
 rstar.smoothed      <- trend.smoothed * stage3NRDLM.est$par[4] + z.smoothed
+rstar.u      <- trend.s.u * stage3NRDLM.est$par[4] + z.s.u
+rstar.l      <- trend.s.l * stage3NRDLM.est$par[4] + z.s.l
+
 
 cbind(NRdata$real.r[-c(1:9)],rstar.smoothed[-c(1:10)]) %>% 
   matplot(type = "l")
@@ -594,12 +638,35 @@ cbind(stage3filtered$m[-c(1:9),5],stage3smoothed$s[-c(1:9),5]) %>% matplot(type 
 # Charts and tables
 #--------------------------------------------------------------------------------------------------------------------------
 
+
+# table 1
+tibble(Potential = stage3smoothed$s[-1,5]*4,
+       Date = seq(as.Date("1982-12-01"), length.out = length(stage3smoothed$s[-1,1]), by  = "quarter" ) ) %>%
+  filter(Date %in% c(as.Date("1990-06-01"),as.Date("2000-06-01"),as.Date("2019-06-01")))
+
 # Chart one - potential output and actual output (change chart themes)
+p1<- tibble(Output = stage3filtered$y[,1],
+       Potential = stage3smoothed$s[-1,1],
+       Date = seq(as.Date("1982-12-01"), length.out = length(stage3smoothed$s[-1,1]), by  = "quarter" ) ) %>% 
+  gather(Var, Val, -Date) %>% 
+  tst.plot1(aes(x= Date, y = Val, colour = Var))+
+  annotate("text", x=ymd("2000-12-01") , y= 1230, label ="Output", colour =tst_colors[1], size = 3.5)+
+  annotate("text", x=ymd("2000-06-01") , y= 1300, label = "Potential output", colour =tst_colors[3], size = 3.5)+
+  theme(legend.position =  "none")+
+  theme(axis.ticks.length = unit(0, "pt") )+
+  theme(axis.title  = element_blank())
+
+
 tibble(Output = stage3filtered$y[,1],
        Potential = stage3smoothed$s[-1,1],
        Date = seq(as.Date("1982-12-01"), length.out = length(stage3smoothed$s[-1,1]), by  = "quarter" ) ) %>% 
   gather(Var, Val, -Date) %>% 
-  tst.plot1(aes(x= Date, y = Val, colour = Var))
+  tst.plot1(aes(x= Date, y = Val, colour = Var))+
+  annotate("text", x=ymd("2000-12-01") , y= 1230, label ="Output", colour =tst_colors[1], size = 3.5)+
+  annotate("text", x=ymd("2000-06-01") , y= 1300, label = "Potential output", colour =tst_colors[3], size = 3.5)+
+  theme(legend.position =  "none")+
+  theme(axis.ticks.length = unit(0, "pt") )+
+  theme(axis.title  = element_blank())
 
 # Chart two - output gap
 tibble(Output_Gap = stage3smoothed$s[-1,2],
@@ -608,26 +675,98 @@ tibble(Output_Gap = stage3smoothed$s[-1,2],
   tst.plot1(aes(x= Date, y = Val, colour = Var))
 
 # Chart three - nairu and unemployment rate
-tibble(`Unemployment rate` = stage3filtered$y[,2],
-       NAIRU = stage3smoothed$s[-1,11],
+p2 <- tibble(`Outputgap` = stage3smoothed$s[-1,2],
        Date = seq(as.Date("1982-12-01"), length.out = length(stage3smoothed$s[-1,1]), by  = "quarter" ) ) %>% 
   gather(Var, Val, -Date) %>%
-  tst.plot1(aes(x= Date, y = Val, colour = Var))
+  tst.plot1(aes(x= Date, y = Val/100, colour = Var))+
+  annotate("text", x=ymd("2013-06-01") , y= -3/100, label = "Output gap", colour =tst_colors[1], size = 3.5)+
+  theme(legend.position =  "none")+
+  theme(axis.ticks.length = unit(0, "pt") )+
+  scale_y_continuous(sec.axis =dup_axis(), labels = scales::percent_format(accuracy = 1))+
+  theme(axis.title  = element_blank())
+
+
+p3 <-  gridExtra::grid.arrange(p1,p2, ncol = 2)
+
+ggsave(plot = p3, filename = "NR4.png", width = 6, height = 3.5)
+
 
 # Chart four - r* and real cash rate
-tibble(`Real cash rate` = stage3filtered$y[,5],
-       `Neutral rate (two sided)` = rstar.smoothed[-1],
+tibble(`Real cash rate` = stage3filtered$y[,5]/100,
+       `Neutral rate (two sided)` = rstar.smoothed[-1]/100,
        #`Neutral rate (one sided)` = rstar.filtered[-1],
        Date = seq(as.Date("1982-12-01"), length.out = length(stage3smoothed$s[-1,1]), by  = "quarter" ) ) %>% 
   gather(Var, Val, -Date) %>% 
   filter(Date >= "1982-06-01") %>% 
-  tst.plot1(aes(x= Date, y = Val, colour = Var))
+  tst.plot1(aes(x= Date, y = Val, colour = Var)) + 
+#  ggtitle(label = "The Neutral rate of interest", subtitle ="The neutral rate has been declining over recent years")+
+  #annotate("text", x=ymd("2011-12-01") , y= 4.9/100, label = paste0("R* at ",last(m$Date)," \n ",round(last(rstar.smoothed[-1]),3),"%"), colour =tst_colors[1], size = 3.5)+
+ annotate("text", x=ymd("2015-12-01") , y= 3/100, label ="R*", colour =tst_colors[1], size = 3.5)+
+     annotate("text", x=ymd("2001-06-01") , y= 0.004, label = "Real cash rate", colour =tst_colors[3], size = 3.5)+
+  theme(legend.position =  "none")+
+  annotate("text",label = "Per cent")+
+  scale_y_continuous(sec.axis =dup_axis(), labels = scales::percent_format(accuracy = 1))+
+  theme(axis.ticks.length = unit(0, "pt") )+
+  theme(axis.title  = element_blank())
+  
 
+ggsave("NR1.png", width = 6, height = 3.5)
+
+
+# plot size 550, 370
 
 tibble(`Inflation` = stage3filtered$m[,14],
        IE = stage3filtered$m[,17],
        Date = seq(as.Date("1982-12-01"), length.out = length(stage3smoothed$s[,1]), by  = "quarter" ) ) %>% 
   gather(Var, Val, -Date) %>%
   tst.plot1(aes(x= Date, y = Val, colour = Var))
+
+
+# R* with confidence bands
+tibble(rstar = rstar.smoothed[-1]/100,
+       upper = rstar.u[-1]/100,
+       lower = rstar.l[-1]/100,
+       Date = seq(as.Date("1982-12-01"), length.out = length(stage3smoothed$s[-1,1]), by  = "quarter" ) ) %>% 
+  filter(Date >= "1982-06-01") %>% 
+  ggplot()+
+  geom_line(aes(Date, rstar),  colour = tst_colors[3])+
+  geom_ribbon(aes(Date, ymin =upper , ymax = lower), alpha = 0.2)+
+  tst_theme()+
+  scale_colour_tst()+
+  xlab("")+
+  ylab("Per cent")+
+  # Label for probability intervals
+  annotate("text", x=ymd("1998-06-01") , y= 1/100, label = "90% probability limit", colour = "grey40", alpha = 1, fontface = 1)+
+  # Label for output gap
+  annotate("text", x=ymd("2015-06-01") , y=2.5/100 , label = "r*", colour = tst_colors[3])+
+  scale_y_continuous(sec.axis =dup_axis(), labels = scales::percent_format(accuracy = 1))+
+  theme(axis.title  = element_blank())
+
+ggsave("NR2.png", width = 6, height = 3.5)
+
+  
+# Chart three - nairu and unemployment rate
+tibble(`Unemployment rate` = stage3filtered$y[,2]/100,
+             NAIRU = stage3smoothed$s[-1,11]/100,
+       upper = (stage3smoothed$s[-1,11]+(variances[-1,11]*qnorm(0.05,lower.tail = FALSE)))/100 ,
+       lower = (stage3smoothed$s[-1,11]-(variances[-1,11]*qnorm(0.05,lower.tail = FALSE)))/100,
+             Date = seq(as.Date("1982-12-01"), length.out = length(stage3smoothed$s[-1,1]), by  = "quarter" ) ) %>% 
+  ggplot()+
+  geom_line(aes(Date, NAIRU),  colour = tst_colors[3])+
+  geom_line(aes(Date, `Unemployment rate`),  colour = tst_colors[1])+
+  geom_ribbon(aes(Date, ymin =upper , ymax = lower), alpha = 0.2)+
+  tst_theme()+
+  scale_colour_tst()+
+  xlab("")+
+  ylab("Per cent")+
+  # Label for probability intervals
+  annotate("text", x=ymd("1998-06-01") , y= 5/100, label = "90% probability limit", colour = "grey40", alpha = 1, fontface = 1)+
+  # Label for output gap
+  annotate("text", x=ymd("2015-06-01") , y=4.5/100 , label = "NAIRU", colour = tst_colors[3])+
+  annotate("text", x=ymd("2008-12-01") , y=7.5/100 , label = "Unemployment rate", colour = tst_colors[1])+
+  scale_y_continuous(sec.axis =dup_axis(), labels = scales::percent_format(accuracy = 1))+
+  theme(axis.title  = element_blank())
+
+ggsave("NR3.png", width = 6, height = 3.5)
 
 
