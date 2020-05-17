@@ -18,7 +18,7 @@ source("~/GitHub/Packages/tst.package/R/tst.macrodata.R")
 source("~/GitHub/LW/median.unbiased.estimator.stage1.R")
 source("~/GitHub/LW/median.unbiased.estimator.stage2.R")
 source("~/GitHub/Neutral rate/HLW/hpfilter.R")
-
+setwd("C:/Users/aelde/OneDrive/Documents/GitHub/NeutralRate")
 
 #-----------------------------------------------------------------------------------------
 # Prepare data
@@ -408,12 +408,12 @@ lambda.z <- median.unbiased.estimator.stage2(y,x)
 #--------------------------------------------------------------------------------------------------------------------------
 # Stage 3 
 #---------------------------------------------------------------------------------------------------------------
-NRdata <- NRdata0
-
-NRdata0 <- NRdata
-
-NRdata <- NRdata0 %>% 
-  filter(Date >= "1990-09-01")
+# NRdata <- NRdata0
+# 
+# NRdata0 <- NRdata
+# 
+# NRdata <- NRdata0 %>% 
+#   filter(Date >= "1990-09-01")
 
 
 stage3NRDLM <- dlm(
@@ -489,8 +489,7 @@ stage3buildNRDLM <- function(p){
   GG(stage3NRDLM)[12,8] <- p[5]*0.4*p[3]/2  
   GG(stage3NRDLM)[12,9] <- -p[5]*0.4*p[3]/2            
   GG(stage3NRDLM)[12,10] <- -p[5]*0.4*p[3]/2  
-#  GG(stage3NRDLM)[12,13] <- p[15]  # DELETE IF NO GOOD
-  
+
   
   GG(stage3NRDLM)[13,12] <- 1           
   
@@ -562,6 +561,10 @@ UC[c(7:14)] <- exp(12)
 stage3NRDLM.est <-  dlmMLE(y = cbind(NRdata$log.output,NRdata$unr,NRdata$Inflation, NRdata$INFE, NRdata$real.r), parm = theta, build = stage3buildNRDLM, 
                            lower = LC, upper = UC,
                            control = list(trace = 6, REPORT = 5, maxit = 1000), debug = FALSE, method = "L-BFGS-B", hessian = TRUE)
+
+
+#stage3NRDLM.est_freelyest <- stage1NRDLM.est
+
 
 # Save off parameter estiamtes 
 # create confidence bands
@@ -642,7 +645,7 @@ cbind(stage3filtered$m[-c(1:9),5],stage3smoothed$s[-c(1:9),5]) %>% matplot(type 
 # table 1
 tibble(Potential = stage3smoothed$s[-1,5]*4,
        Date = seq(as.Date("1982-12-01"), length.out = length(stage3smoothed$s[-1,1]), by  = "quarter" ) ) %>%
-  filter(Date %in% c(as.Date("1990-06-01"),as.Date("2000-06-01"),as.Date("2019-06-01")))
+  filter(Date %in% c(as.Date("1989-06-01"),as.Date("1999-06-01"),as.Date("2009-06-01"),as.Date("2019-06-01")))
 
 # Chart one - potential output and actual output (change chart themes)
 p1<- tibble(Output = stage3filtered$y[,1],
@@ -688,7 +691,9 @@ p2 <- tibble(`Outputgap` = stage3smoothed$s[-1,2],
 
 p3 <-  gridExtra::grid.arrange(p1,p2, ncol = 2)
 
-ggsave(plot = p3, filename = "NR4.png", width = 6, height = 3.5)
+
+ggsave(plot = p1, filename = paste0(getwd(),"/Working paper/Images/NR4.png"), width = 6*0.6, height = 3.5*0.6)
+ggsave(plot = p2, filename = paste0(getwd(),"/Working paper/Images/NR5.png"), width = 6*0.6, height = 3.5*0.6)
 
 
 # Chart four - r* and real cash rate
@@ -701,8 +706,8 @@ tibble(`Real cash rate` = stage3filtered$y[,5]/100,
   tst.plot1(aes(x= Date, y = Val, colour = Var)) + 
 #  ggtitle(label = "The Neutral rate of interest", subtitle ="The neutral rate has been declining over recent years")+
   #annotate("text", x=ymd("2011-12-01") , y= 4.9/100, label = paste0("R* at ",last(m$Date)," \n ",round(last(rstar.smoothed[-1]),3),"%"), colour =tst_colors[1], size = 3.5)+
- annotate("text", x=ymd("2015-12-01") , y= 3/100, label ="R*", colour =tst_colors[1], size = 3.5)+
-     annotate("text", x=ymd("2001-06-01") , y= 0.004, label = "Real cash rate", colour =tst_colors[3], size = 3.5)+
+ annotate("text", x=ymd("2015-12-01") , y= 3/100, label ="r*", colour =tst_colors[1], size = 3)+
+     annotate("text", x=ymd("2001-06-01") , y= 0.004, label = "Real cash rate", colour =tst_colors[3], size = 3)+
   theme(legend.position =  "none")+
   annotate("text",label = "Per cent")+
   scale_y_continuous(sec.axis =dup_axis(), labels = scales::percent_format(accuracy = 1))+
@@ -710,7 +715,7 @@ tibble(`Real cash rate` = stage3filtered$y[,5]/100,
   theme(axis.title  = element_blank())
   
 
-ggsave("NR1.png", width = 6, height = 3.5)
+ggsave(paste0(getwd(),"/Working paper/Images/NR1.png"), width = 6*0.6, height = 3.5*0.6)
 
 
 # plot size 550, 370
@@ -736,13 +741,14 @@ tibble(rstar = rstar.smoothed[-1]/100,
   xlab("")+
   ylab("Per cent")+
   # Label for probability intervals
-  annotate("text", x=ymd("1998-06-01") , y= 1/100, label = "90% probability limit", colour = "grey40", alpha = 1, fontface = 1)+
+  annotate("text", x=ymd("1998-06-01") , y= 1/100, label = "90% probability limit", colour = "grey40", alpha = 1, fontface = 1, size = 3) +
   # Label for output gap
-  annotate("text", x=ymd("2015-06-01") , y=2.5/100 , label = "r*", colour = tst_colors[3])+
+  annotate("text", x=ymd("2015-06-01") , y=2.5/100 , label = "r*", colour = tst_colors[3], size = 3)+
   scale_y_continuous(sec.axis =dup_axis(), labels = scales::percent_format(accuracy = 1))+
   theme(axis.title  = element_blank())
 
-ggsave("NR2.png", width = 6, height = 3.5)
+
+ggsave(paste0(getwd(),"/Working paper/Images/NR2.png"), width = 6*0.6, height = 3.5*0.6)
 
   
 # Chart three - nairu and unemployment rate
@@ -760,13 +766,13 @@ tibble(`Unemployment rate` = stage3filtered$y[,2]/100,
   xlab("")+
   ylab("Per cent")+
   # Label for probability intervals
-  annotate("text", x=ymd("1998-06-01") , y= 5/100, label = "90% probability limit", colour = "grey40", alpha = 1, fontface = 1)+
+  annotate("text", x=ymd("1994-06-01") , y= 4.5/100, label = "90% probability limit", colour = "grey40", alpha = 1, fontface = 1,size =3)+
   # Label for output gap
-  annotate("text", x=ymd("2015-06-01") , y=4.5/100 , label = "NAIRU", colour = tst_colors[3])+
-  annotate("text", x=ymd("2008-12-01") , y=7.5/100 , label = "Unemployment rate", colour = tst_colors[1])+
+  annotate("text", x=ymd("2015-06-01") , y=4.5/100 , label = "NAIRU", colour = tst_colors[3], size =3)+
+  annotate("text", x=ymd("2008-12-01") , y=7.5/100 , label = "Unemployment rate", colour = tst_colors[1], size =3)+
   scale_y_continuous(sec.axis =dup_axis(), labels = scales::percent_format(accuracy = 1))+
   theme(axis.title  = element_blank())
 
-ggsave("NR3.png", width = 6, height = 3.5)
+ggsave(paste0(getwd(),"/Working paper/Images/NR3.png"), width = 6*0.6, height = 3.5*0.6)
 
 
