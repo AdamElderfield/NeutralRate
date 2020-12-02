@@ -1,0 +1,448 @@
+* Australian neutral rate estimation
+*
+* Follows the model of Dan Rees and Racheal McCririck (2017)
+* Code is set up as follows:
+*       Read data
+*       Transform data / create variables
+*       Stage one estimation (output gap, no interest rates)
+*       Medium unbiased estimator stage 1
+*       Stage 2 estimation
+*       Medium unbiased estimator stage 2
+*       Stage 3 estimation
+
+******************************************************************
+* Read data
+******************************************************************
+OPEN DATA "C:\Users\aelde\OneDrive\Documents\GitHub\NeutralRate\NeutralRateAus.csv"
+CALENDAR(Q) 1959:3
+DATA(FORMAT=PRN,ORG=COLUMNS,LEFT=2) 1959:03 2020:01 GDPE_R rate_UNE CPIU rate_90
+
+* Check data
+table
+
+******************************************************************
+* Transform data / data creation
+******************************************************************
+
+set lgdp = 100*log(gdpe_r)
+set dlgdp = lgdp-lgdp{1}
+set unr = rate_UNE
+set dlcpiu4 = 100*log(cpiu/cpiu{4})
+
+*
+* compute inflation expectations as 3/5 year moving averages (will do a seperate program for DFM estimation)
+*
+
+filter(type=lagging,span=3) dlcpiu4 / dlinf3
+filter(type=lagging,span=5) dlcpiu4 / dlinf5
+FILTER(TYPE=HP,TUNING=10000) DLCPIU4 / DLINF5
+
+*
+* compute real interest rate (ex-ante, that is using inflation expectations to deflate)
+*
+
+set realrate = rate_90-dlinf5
+set dinfe = dlinf5
+******************************************************************
+* State space model
+******************************************************************
+
+* Their F is our A
+* Their c is our Z
+* Their H is our C
+* Their A is our REGF
+* Their R is our SV
+* Their Q is a combination of our F and SW
+
+*
+* The first declare sets the fixed matrices (A and F), the second and third set matrices with parameters to be estimated
+*
+
+dec rect a f
+dec frml[rect] cf zf regf muf
+dec frml[symm] swf svf
+
+******************************************************************
+* Stage 1 estimation
+******************************************************************
+*
+* Stage 1 has GDP drifting as a random walk
+*
+*``````````````````````
+* Create system
+*``````````````````````
+
+equation stage1eq *
+# lgdp{0 1 2 3} unr{1} dlcpiu4{1 2 3} dinfe{0}
+
+nonlin(parmset=stage1) a1 a2 u1 b1 b2 g sigy sigu sigi sigpot signairu
+*
+* State vector is [y*,y*(-1),y*(-2),y*(-3),u*, u*(-1)], thus state transition matrix (A) is 6x6
+*
+dim a(6,6)
+compute a = ||1.0,0.0,0.0,0.0,0.0,0.0|$
+              1.0,0.0,0.0,0.0,0.0,0.0|$
+              0.0,1.0,0.0,0.0,0.0,0.0|$
+              0.0,0.0,1.0,0.0,0.0,0.0|$
+              0.0,0.0,0.0,0.0,0.0,1.0|$
+              0.0,0.0,0.0,0.0,0.0,1.0||
+*
+* Shocks (W) are loaded onto Y* and U*
+*
+dim f(6,2)
+compute f = ||1.0,0.0|$
+              0.0,0.0|$
+              0.0,0.0|$
+              0.0,0.0|$
+              0.0,1.0|$
+              0.0,0.0||
+*
+* Z vector only captures g, the constant growth rate for potential GDP (this is relaxed later)
+*
+frml zf = ||g|$
+            0|$
+            0|$
+            0|$
+            0|$
+            0||
+*
+* C loading matrix, maps the states to the observeables, this is actual C' in the observation equation
+*
+frml cf = ||1.0,-u1*0.4,0.0|$
+          -a1,-u1*0.3,0.0|$
+          -a2,-u1*0.2,0.0|$
+          0.0,-u1*0.1,0.0|$
+          0.0,  1.0,0.0|$
+          0.0,  0.0,-b2||
+*
+* REGF loading matrix, maps the exogenous variables to the observeables, this is an NxR matrix
+*
+frml regf = ||0.0,a1,a2,0.0,0.0,0.0,0.0,0.0,0.0|$
+            u1*0.4,u1*0.3,u1*0.2,u1*0.1,0.0,0.0,0.0,0.0,0.0|$
+            0.0,0.0,0.0,0.0,b2,b1/3,b1/3,b1/3,1-b1||
+frml muf  = regf*%eqnxvector(stage1eq,t)
+*
+* Parameterise variances, SW and SV
+*
+frml svf  = %diag(||sigy^2,sigu^2,sigi^2||)
+frml swf  = %diag(||sigpot^2,signairu^2||)
+
+*``````````````````````
+* Generate inital values
+*``````````````````````
+
+*
+* Estimate of potential GDP gap using broken trend
+*      Break points estimated with Bai and Perron procedure
+
+@BaiPerron(maxbreaks = 2, minspan = 8, print, tests) dlgdp
+# constant
+
+* @lsunit(breaks=2,pi=.10,lags=5,method=gtos,model=break) lgdp
+
+* LS test suggest break points at 1971:2 and 1998:2 (BP test, suggest 1960 and 1970)
+set trend = t
+set btrend1 = %max(t-1971:2,0)
+set btrend2 = %max(t-1998:2,0)
+
+linreg lgdp
+# constant trend btrend1 btrend2
+prj ystar
+set ygap = lgdp-ystar
+
+spgraph(vfields = 2, footer ="Stage 1 potential GDP and output gap, inital estimate")
+   graph(header="Chart 1: Potential and actual GDP") 2
+   # lgdp
+   # ystar
+   graph(header="Chart 2: Output gap") 1
+   # ygap
+spgraph(done)
+
+
+*
+* Estimate IS curve
+*
+linreg ygap
+# ygap{1 2}
+compute a1 = %beta(1), a2 =%beta(2), sigy = sqrt(%seesq)
+
+*
+* Estimate Okun's law (without parameter restriction)
+*
+
+* @lsunit(breaks=3,pi=.10,lags=5,method=gtos,model=break) unr
+dummy(ls=1986:4) dunr1986q4
+dummy(ls=1991:3) dunr1991q3
+dummy(from=2008:1, to=2020:1) dunr2008q1
+
+linreg unr
+# constant dunr1986q4 dunr1991q3 dunr2008q1
+prj nairu
+graph 2
+# nairu
+# unr
+
+set unrgap = unr-nairu
+linreg unrgap
+# ygap{0 1 2 3}
+compute u1 = (%beta(1)*0.4+%beta(2)*0.3+%beta(3)*0.2+%beta(4)*0.1), sigu = sqrt(%seesq)
+
+*
+* Estimate Phillip's curve (without parameter restriction)
+*
+linreg dlcpiu4
+# dlcpiu4{1 2 3} ygap{1} dinfe
+compute b2 = (%beta(1)+%beta(2)+%beta(3))/3, b1 = %beta(4), sigi = sqrt(%seesq)
+
+*
+* Estimate trend growth (g)
+*
+diff ystar / dystar
+linreg dystar
+# constant
+compute g = %beta(1), sigpot = sqrt(%seesq)
+
+*
+* Estimate SS model Stage 1
+*
+dlm(parmset=stage1,method=bfgs,presample=ergodic,y=||lgdp,unr,dlcpiu4||,$
+  a=a,f=f,sw=swf,sv=svf,z=zf,c=cf,mu=muf,type=smooth) 1981:1 * xstates
+*
+set ystar %regstart() %regend() = xstates(t)(1)
+set nairu %regstart() %regend() = xstates(t)(5)
+set gap = lgdp-ystar
+set unrgap = unr-nairu
+
+******************************************************************
+* Stage 2 estimation
+******************************************************************
+* Note, LAMBDA_G is estimated with R code provided by LW
+*
+set lambdag = 0.04135878
+
+* Stage 1 has GDP drifting as a random walk
+*
+*``````````````````````
+* Create system
+*``````````````````````
+
+equation stage2eq *
+# lgdp{0 1 2 3} unr{1} dlcpiu4{1 2 3} dinfe{0} realrate{1 2} constant
+
+nonlin(parmset=stage2) a1 a2 a3 a4 a5 u1 b1 b2 sigy sigu sigi sigpot signairu
+*
+* State vector is [y*,y*(-1),y*(-2),y*(-3),u*, u*(-1), g], thus state transition matrix (A) is 7x7
+*
+dim a(7,7)
+compute a = ||1.0,0.0,0.0,0.0,0.0,0.0,1.0|$
+              1.0,0.0,0.0,0.0,0.0,0.0,0.0|$
+              0.0,1.0,0.0,0.0,0.0,0.0,0.0|$
+              0.0,0.0,1.0,0.0,0.0,0.0,0.0|$
+              0.0,0.0,0.0,0.0,1.0,0.0,0.0|$
+              0.0,0.0,0.0,0.0,1.0,0.0,0.0|$
+              0.0,0.0,0.0,0.0,0.0,0.0,1.0||
+*
+* Shocks (W) are loaded onto Y* and U*
+*
+dim f(7,3)
+compute f = ||1.0,0.0,0.0|$
+              0.0,0.0,0.0|$
+              0.0,0.0,0.0|$
+              0.0,0.0,0.0|$
+              0.0,1.0,0.0|$
+              0.0,0.0,0.0|$
+              0.0,0.0,1.0||
+*
+* C loading matrix, maps the states to the observeables, this is actual C' in the observation equation
+*
+frml cf = ||1.0,-u1*0.4,0.0|$
+          -a1,-u1*0.3,0.0|$
+          -a2,-u1*0.2,0.0|$
+          0.0,-u1*0.1,0.0|$
+          0.0,   1.0,0.0|$
+          0.0,  0.0,-b2|$
+          a5,  0.0,0.0||
+*
+* REGF loading matrix, maps the exogenous variables to the observeables, this is an NxR matrix
+*
+frml regf = ||0.0,a1,a2,0.0,0.0,0.0,0.0,0.0,0.0,a3/2,a3/2, a4|$
+            u1*0.4,u1*0.3,u1*0.2,u1*0.1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0|$
+            0.0,0.0,0.0,0.0,b2,b1/3,b1/3,b1/3,1-b1,0.0,0.0,0.0||
+frml muf  = regf*%eqnxvector(stage2eq,t)
+*
+* Parameterise variances, SW and SV
+*
+frml svf  = %diag(||sigy^2,sigu^2,sigi^2||)
+frml swf  = %diag(||sigpot^2,signairu^2,(lambdag*sigpot)^2||)
+
+*``````````````````````
+* Generate inital values
+*``````````````````````
+
+*
+* Estimate IS curve
+*
+linreg ygap 1981:1 *
+# gap{1 2} rate_90{1 2} constant
+compute a1 = %beta(1), a2 = %beta(2), a3 = (%beta(3)+%beta(4))/2, a4 = %beta(5)
+compute a5 = -a3
+
+
+*
+* Estimate Okun's law (without parameter restriction)
+*
+set dunr = unr-unr{1}
+linreg unrgap
+# ygap{0 1 2 3}
+compute u1 = (%beta(1)*0.4+%beta(2)*0.3+%beta(3)*0.2+%beta(4)*0.1), sigu = sqrt(%seesq)
+
+*
+* Estimate Phillip's curve (without parameter restriction)
+*
+linreg dlcpiu4
+# dlcpiu4{1 2 3} ygap{1} dinfe
+compute b2 = (%beta(1)+%beta(2)+%beta(3))/3, b1 = %beta(4), sigi = sqrt(%seesq)
+
+*
+* Estimate SS model Stage 2
+*
+dlm(parmset=stage2,method=bfgs,presample=ergodic,y=||lgdp,unr,dlcpiu4||,$
+  a=a,f=f,sw=swf,sv=svf,c=cf,mu=muf,type=smooth) 1981:1 * xstates
+*
+set ystar %regstart() %regend() = xstates(t)(1)
+set nairu %regstart() %regend() = xstates(t)(5)
+set grate %regstart() %regend() = xstates(t)(7)
+set gap = lgdp-ystar
+set ugap = unr-nairu
+
+spgraph(vfields = 2, hfields =2, footer ="Stage 2 trends and gaps, dlm estimate")
+   graph(header="Chart 1: Potential and actual GDP") 2
+   # lgdp
+   # ystar
+   graph(header="Chart 2: Output gap") 1
+   # ygap
+   graph(header="Chart 3: NAIRU and Unemployment rate") 2
+   # unr
+   # nairu
+   graph(header="Chart 4: Unemployment rate gap") 1
+   # ugap
+spgraph(done)
+
+
+******************************************************************
+* Stage 3 estimation
+******************************************************************
+* Note, LAMBDA_G, lambdaz, is estimated with R code provided by LW
+*
+set lambdag = 0.04135878
+set lambdaz = 0.0482747
+
+* Stage 1 has GDP drifting as a random walk
+*
+*``````````````````````
+* Create system
+*``````````````````````
+
+equation stage3eq *
+# lgdp{0 1 2 3} unr{1} dlcpiu4{1 2 3} dinfe{0} realrate{1 2}
+
+nonlin(parmset=stage3) a1 a2 a3 a4 a5 u1 b1 b2 c sigy sigu sigi sigpot signairu
+
+*
+* State vector is [y*,y*(-1),y*(-2),y*(-3),u*, u*(-1), g(-1), g(-2), z(-1), z(-2)] thus state transition matrix (A) is 10x10
+*
+dim a(10,10)
+compute a = ||1.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0|$
+              1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0|$
+              0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0|$
+              0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0|$
+              0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0|$
+              0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0|$
+              0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0|$
+              0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0|$
+              0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0|$
+              0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0||
+*
+* Shocks (W) are loaded onto Y* and U*
+*
+dim f(10,4)
+compute f = ||1.0,0.0,1.0,0.0|$
+              0.0,0.0,0.0,0.0|$
+              0.0,0.0,0.0,0.0|$
+              0.0,0.0,0.0,0.0|$
+              0.0,1.0,0.0,0.0|$
+              0.0,0.0,0.0,0.0|$
+              0.0,0.0,1.0,0.0|$
+              0.0,0.0,0.0,0.0|$
+              0.0,0.0,0.0,1.0|$
+              0.0,0.0,0.0,0.0||
+*
+*
+*
+
+*
+* C loading matrix, maps the states to the observeables, this is actual C' in the observation equation
+*
+frml cf = ||1.0,-u1*0.4,0.0|$
+          -a1,-u1*0.3,0.0|$
+          -a2,-u1*0.2,0.0|$
+          0.0,-u1*0.1,0.0|$
+          0.0, 1.0,0.0|$
+          0.0, 0.0,-b2|$
+          -c*a3/2,  0.0,0.0|$
+          -c*a3/2,  0.0,0.0|$
+          -a3/2,  0.0,0.0|$
+          -a3/2,  0.0,0.0||
+*
+* REGF loading matrix, maps the exogenous variables to the observeables, this is an NxR matrix
+*
+frml regf = ||0.0,a1,a2,0.0,0.0,0.0,0.0,0.0,0.0,a3/2,a3/2|$
+            u1*0.4,u1*0.3,u1*0.2,u1*0.1,0.0,0.0,0.0,0.0,0.0,0.0,0.0|$
+            0.0,0.0,0.0,0.0,b2,b1/3,b1/3,b1/3,1-b1,0.0,0.0||
+frml muf  = regf*%eqnxvector(stage3eq,t)
+*
+* Parameterise variances, SW and SV
+*
+frml svf  = %diag(||sigy^2,sigu^2,sigi^2||)
+frml swf  = %diag(||sigpot^2,signairu^2,(lambdag*sigpot)^2,(lambdaz*sigy/a3)^2||)
+
+*``````````````````````
+* Generate inital values
+*``````````````````````
+
+*
+* Estimate IS curve
+*
+linreg ygap 1981:1 *
+# gap{1 2} rate_90{1 2} constant
+compute a1 = %beta(1), a2 = %beta(2), a3 = (%beta(3)+%beta(4))/2, a4 = %beta(5)
+compute a5 = -a3
+
+
+*
+* Estimate Okun's law (without parameter restriction)
+*
+set dunr = unr-unr{1}
+linreg dunr
+# constant ygap{0 1 2 3}
+compute u1 = (%beta(2)*0.4+%beta(3)*0.3+%beta(4)*0.2+%beta(5)*0.1), sigu = sqrt(%seesq)
+
+*
+* Estimate Phillip's curve (without parameter restriction)
+*
+linreg dlcpiu4
+# dlcpiu4{1 2 3} ygap{1} dinfe
+compute b2 = (%beta(1)+%beta(2)+%beta(3))/3, b1 = %beta(4), sigi = sqrt(%seesq)
+
+*
+* Estimate SS model Stage 3
+*
+dlm(parmset=stage3,method=bfgs,presample=ergodic,y=||lgdp,unr,dlcpiu4||,$
+  a=a,f=f,sw=swf,sv=svf,c=cf,mu=muf,type=smooth) 1981:1 * xstates
+*
+set ystar %regstart() %regend() = xstates(t)(1)
+set nairu %regstart() %regend() = xstates(t)(5)
+set grate %regstart() %regend() = xstates(t)(7)
+set gap = lgdp-ystar
+
+
